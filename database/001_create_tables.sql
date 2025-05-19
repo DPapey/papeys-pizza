@@ -1,0 +1,11 @@
+--CREATE DATABASE papeys_pizza
+
+--DROP TABLES
+DROP TABLE IF EXISTS user
+
+CREATE TABLE address(
+	address_id SERIAL PRIMARY KEY,
+	street VARCHAR(30) NOT NULL,
+	town VARCHAR(30),
+	postcode VARCHAR(7) NOT NULL
+);
