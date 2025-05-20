@@ -1,22 +1,22 @@
 --CREATE DATABASE papeys_pizza
 
 --DROP TABLES REVERSE ORDER
-DROP TABLE IF EXISTS sale_order;
-DROP TABLE IF EXISTS sale_order_item;
-DROP TABLE IF EXISTS inventory_transaction;
-DROP TABLE IF EXISTS inventory_transaction_type;
-DROP TABLE IF EXISTS parlour_inventory;
-DROP TABLE IF EXISTS supplier_item;
-DROP TABLE IF EXISTS item;
-DROP TABLE IF EXISTS item_category;
-DROP TABLE IF EXISTS parlour;
-DROP TABLE IF EXISTS supplier;
-DROP TABLE IF EXISTS arcade_card;
-DROP TABLE IF EXISTS staff;
-DROP TABLE IF EXISTS role;
-DROP TABLE IF EXISTS account;
-DROP TABLE IF EXISTS contact_info;
-DROP TABLE IF EXISTS contact_type;
+DROP TABLE IF EXISTS inventory_transaction CASCADE;
+DROP TABLE IF EXISTS inventory_transaction_type CASCADE;
+DROP TABLE IF EXISTS sale_order_item CASCADE;
+DROP TABLE IF EXISTS sale_order CASCADE;
+DROP TABLE IF EXISTS parlour_inventory CASCADE;
+DROP TABLE IF EXISTS supplier_item CASCADE;
+DROP TABLE IF EXISTS item CASCADE;
+DROP TABLE IF EXISTS item_category CASCADE;
+DROP TABLE IF EXISTS parlour CASCADE;
+DROP TABLE IF EXISTS supplier CASCADE;
+DROP TABLE IF EXISTS arcade_card CASCADE;
+DROP TABLE IF EXISTS staff CASCADE;
+DROP TABLE IF EXISTS role CASCADE;
+DROP TABLE IF EXISTS account CASCADE;
+DROP TABLE IF EXISTS contact_info CASCADE;
+DROP TABLE IF EXISTS contact_type CASCADE;
 
 
 CREATE TABLE contact_type(
@@ -108,7 +108,7 @@ CREATE TABLE item(
 	category_id INT NOT NULL,
 	unit_of_measure VARCHAR(30),
 	cost_price DECIMAL(10,2),
-	sale_price DECIMAL(10,2)
+	sale_price DECIMAL(10,2),
 	FOREIGN KEY (category_id) REFERENCES item_category(category_id)
 );
 
@@ -122,7 +122,7 @@ CREATE TABLE supplier_item(
 	contract_start_date DATE,
 	contract_end_date DATE,
 	notes TEXT,
-	PRIMARY KEY (supplier_id, item_id)
+	PRIMARY KEY (supplier_id, item_id),
 	FOREIGN KEY (supplier_id) REFERENCES supplier(supplier_id) ON DELETE CASCADE,
 	FOREIGN KEY (item_id) REFERENCES item(item_id) ON DELETE CASCADE
 );
@@ -138,12 +138,6 @@ CREATE TABLE parlour_inventory(
 	UNIQUE (parlour_id, item_id),
 	FOREIGN KEY (parlour_id) REFERENCES parlour(parlour_id) ON DELETE CASCADE,
 	FOREIGN KEY (item_id) REFERENCES item(item_id) ON DELETE CASCADE
-);
-
-CREATE TABLE inventory_transaction_type(
-	trans_type_id SERIAL PRIMARY KEY,
-	trans_type_name VARCHAR(50) NOT NULL UNIQUE, --purchase, sale, waste, transfer (in/out), initial
-	is_increase BOOLEAN NOT NULL --true for adding stock, false for removing
 );
 
 -- Account ID Nullable incase guest purchase
@@ -172,18 +166,24 @@ CREATE TABLE sale_order_item(
 	FOREIGN KEY (sale_order_id) REFERENCES sale_order(sale_order_id) ON DELETE CASCADE,
 	FOREIGN KEY (item_id) REFERENCES item(item_id) ON DELETE RESTRICT
 
+); 
+
+CREATE TABLE inventory_transaction_type(
+	trans_type_id SERIAL PRIMARY KEY,
+	trans_type_name VARCHAR(50) NOT NULL UNIQUE, --purchase, sale, waste, transfer (in/out), initial
+	is_increase BOOLEAN NOT NULL --true for adding stock, false for removing
 );
 
 CREATE TABLE inventory_transaction(
 	inv_transaction_id SERIAL PRIMARY KEY,
 	trans_type_id INT NOT NULL,
 	parlour_inventory_id INT NOT NULL,
-	quantity DECIMAL(10.2),
+	quantity DECIMAL(10,2),
 	transaction_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 	sale_order_item_id INT,
 	staff_id INT,
 	FOREIGN KEY (trans_type_id) REFERENCES inventory_transaction_type(trans_type_id) ON DELETE RESTRICT,
-	FOREIGN KEY (parlour_inventory_id) REFERENCES parlour_inventory(parlour_inventory_id) ON DELETE RESTRICT
+	FOREIGN KEY (parlour_inventory_id) REFERENCES parlour_inventory(parlour_inventory_id) ON DELETE RESTRICT,
 	FOREIGN KEY (sale_order_item_id) REFERENCES sale_order_item(sale_order_item_id) ON DELETE SET NULL,
 	FOREIGN KEY (staff_id) REFERENCES staff(staff_id) ON DELETE SET NULL
 );
