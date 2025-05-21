@@ -1,5 +1,12 @@
 --CREATE DATABASE papeys_pizza
 
+--DROP TRIGGERS 
+DROP TRIGGER IF EXISTS trg_validate_supplier_contact ON supplier;
+DROP TRIGGER IF EXISTS trg_validate_staff_contact ON staff;
+DROP TRIGGER IF EXISTS trg_validate_account_email ON account;
+DROP TRIGGER IF EXISTS trg_validate_parlour_contact ON parlour;
+
+
 --DROP TABLES REVERSE ORDER
 DROP TABLE IF EXISTS inventory_transaction CASCADE;
 DROP TABLE IF EXISTS inventory_transaction_type CASCADE;
@@ -11,7 +18,7 @@ DROP TABLE IF EXISTS recipe CASCADE;
 DROP TABLE IF EXISTS parlour_inventory CASCADE;
 DROP TABLE IF EXISTS supplier_item CASCADE;
 DROP TABLE IF EXISTS item CASCADE;
-DROP TABLE IF EXISTS item_category CASCADE;
+DROP TABLE IF EXISTS item_type CASCADE;
 DROP TABLE IF EXISTS staff CASCADE;
 DROP TABLE IF EXISTS role CASCADE;
 DROP TABLE IF EXISTS parlour CASCADE;
@@ -19,6 +26,7 @@ DROP TABLE IF EXISTS supplier CASCADE;
 DROP TABLE IF EXISTS arcade_card CASCADE;
 DROP TABLE IF EXISTS account CASCADE;
 DROP TABLE IF EXISTS contact_info CASCADE;
+DROP TABLE IF EXISTS postcode_lookup CASCADE;
 DROP TABLE IF EXISTS contact_type CASCADE;
 
 -- Contact Type Lookup Table (Account, Staff, Parlour, Supplier)
@@ -27,19 +35,28 @@ CREATE TABLE contact_type(
 	contact_type_name VARCHAR(20)
 );
 
+CREATE TABLE postcode_lookup(
+	postcode VARCHAR(8) NOT NULL PRIMARY KEY,
+	town VARCHAR(50) NOT NULL,
+	county VARCHAR(50),
+	created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- All Nullable to enforce NOT NULL checks through triggers (many tables rely on contact for different reasons).
 CREATE TABLE contact_info(
 	contact_id SERIAL PRIMARY KEY,
 	contact_type_id INT NOT NULL,
 	surname VARCHAR(30),
 	forename VARCHAR(30),
-	street VARCHAR(30),
-	town VARCHAR(30),
-	postcode VARCHAR(7),
+	street VARCHAR(100),
+	postcode VARCHAR(8),
 	email_address VARCHAR(80) UNIQUE,
 	telephone_number VARCHAR(13),
-	FOREIGN KEY (contact_type_id) REFERENCES contact_type(contact_type_id)
+	FOREIGN KEY (contact_type_id) REFERENCES contact_type(contact_type_id),
+	FOREIGN KEY (postcode) REFERENCES postcode_lookup(postcode)
 );
+
 
 -- Staff members can also have a customer account & membership aswell as staff, getting discounts to enforce.
 CREATE TABLE account(
@@ -54,7 +71,7 @@ CREATE TABLE account(
 
 -- Card active == true, card lost, deactivated or replaced == false
 CREATE TABLE arcade_card(
-	a_card_id SERIAL PRIMARY KEY,
+	arcade_card_id SERIAL PRIMARY KEY,
 	account_id INT NOT NULL UNIQUE,
 	purchased TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 	current_value DECIMAL(10,2) NOT NULL,
@@ -100,22 +117,24 @@ CREATE TABLE staff(
 	fOREIGN KEY (parlour_id) REFERENCES parlour(parlour_id) ON DELETE CASCADE
 );
 
-
-CREATE TABLE item_category(
-	category_id SERIAL PRIMARY KEY,
-	category_name VARCHAR(50) NOT NULL UNIQUE,
-	description TEXT
+-- Variety of items: sellable food, ingredients, tableware (Lookup Table for Item)
+CREATE TABLE item_type(
+	item_type_id SERIAL PRIMARY KEY,
+	item_type_name VARCHAR(50) NOT NULL UNIQUE,
+	description TEXT,
+	is_saleable BOOLEAN NOT NULL DEFAULT FALSE,
+	is_consumable BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- Sale Price if the item is sold to customers.
 CREATE TABLE item(
 	item_id SERIAL PRIMARY KEY,
 	item_name VARCHAR(30) NOT NULL UNIQUE,
-	category_id INT NOT NULL,
+	item_type_id INT NOT NULL,
 	unit_of_measure VARCHAR(30),
 	cost_price DECIMAL(10,2),
 	sale_price DECIMAL(10,2),
-	FOREIGN KEY (category_id) REFERENCES item_category(category_id)
+	FOREIGN KEY (item_type_id) REFERENCES item_type(item_type_id)
 );
 
 
@@ -230,17 +249,17 @@ DECLARE
 	v_contact_info contact_info;
 BEGIN
 	SELECT *
-	INTO contact_info
+	INTO v_contact_info
 	FROM contact_info
-	WHERE contact-id = NEW.contact_id;
+	WHERE contact_id = NEW.contact_id;
 
 	IF 	v_contact_info.surname IS NULL OR 
 		v_contact_info.forename IS NULL OR 
 		v_contact_info.street IS NULL OR 
 		v_contact_info.postcode IS NULL OR 
-		v_contact_info.email IS NULL OR
+		v_contact_info.email_address IS NULL OR
 		v_contact_info.telephone_number IS NULL THEN
-		RAISE EXCEPTION 'Staff contact info (contact_id: %) must have: surname, forename, street, town, postcode, email and phone number.', NEW.contact_id;
+		RAISE EXCEPTION 'Staff contact info (contact_id: %) must have: surname, forename, street, postcode, email address and telephone number.', NEW.contact_id;
 END IF;
 
 RETURN NEW;
@@ -249,21 +268,32 @@ $$ LANGUAGE plpgsql;
 
 ---
 
---Supplier Contact Info Validation Function
-CREATE OR REPLACE FUNCTION validate_supplier_contact_info()
+--Supplier and Parlour Contact Info Validation Function
+CREATE OR REPLACE FUNCTION validate_location_contact_info()
 RETURNS TRIGGER AS $$
 DECLARE
-	v_surname VARCHAR(30);
-	v_forename VARCHAR(30);
-	v_street VARCHAR(30);
-	v_town VARCHAR(30);
-	v_postcode VARCHAR(30);
+	v_contact_info contact_info;
+BEGIN
+	SELECT *
+	INTO v_contact_info
+	FROM contact_info
+	WHERE contact_id = NEW.contact_id;
+
+	IF 	v_contact_info.street IS NULL OR 
+		v_contact_info.postcode IS NULL OR 
+		v_contact_info.telephone_number IS NULL THEN
+		RAISE EXCEPTION 'Supplier contact info (contact_id: %) must have: street, postcode and Telephone Number.', NEW.contact_id;
+END IF;
+
+RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
 -- Account validation Function (requires email as username)
 CREATE OR REPLACE FUNCTION validate_account_email_contact()
 RETURNS TRIGGER AS $$
 DECLARE
-	v.email VARCHAR(80);
+	v_email VARCHAR(80);
 BEGIN
 	SELECT email_address
 	into v_email
@@ -272,7 +302,7 @@ BEGIN
 
 	IF v_email IS NULL THEN
 		RAISE EXCEPTION 'Account contact info (contact_id: %) must have an email address for username.', NEW.contact_id;
-	END IF
+	END IF;
 
 	IF EXISTS (
 		SELECT 1 FROM account a 
@@ -283,19 +313,34 @@ BEGIN
 	END IF;
 
 	RETURN NEW;
-END
+END;
 $$ LANGUAGE plpgsql;
 
--- Trigger for staff
+-- Trigger for staff contact_info
 CREATE TRIGGER trg_validate_staff_contact
-BEFORE INSERT ON OR UPDATE OF contact_id ON staff
+BEFORE INSERT OR UPDATE ON staff
 FOR EACH ROW
 	EXECUTE FUNCTION validate_staff_contact_info();
 
 
--- Trigger for Account
+-- Trigger for Account contact_info
 CREATE TRIGGER trg_validate_account_email
-BEFORE INSERT ON OR UPDATE OF contact_id ON account
+BEFORE INSERT OR UPDATE ON account
 FOR EACH ROW
 	EXECUTE FUNCTION validate_account_email_contact();
+
+-- Trigger for Parlour contact_info
+CREATE TRIGGER trg_validate_parlour_contact
+BEFORE INSERT OR UPDATE ON parlour 
+FOR EACH ROW
+	EXECUTE FUNCTION validate_location_contact_info();
+
+-- Trigger for Supplier contact_info
+CREATE TRIGGER trg_validate_supplier_contact
+BEFORE INSERT OR UPDATE ON supplier 
+FOR EACH ROW
+	EXECUTE FUNCTION validate_location_contact_info();
+
+
+--CREATE INDEXES
 
