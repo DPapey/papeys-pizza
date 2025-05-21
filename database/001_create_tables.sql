@@ -69,13 +69,13 @@ CREATE TABLE supplier(
 	supplier_name VARCHAR(50),
 	contact_id INT NOT NULL,
 	FOREIGN KEY (contact_id) REFERENCES contact_info(contact_id)
-	ON DELETE SET NULL
+	ON DELETE SET NULL --Retains supplier if contact leaves
 );
 
 -- Contact info applied is admin
 CREATE TABLE parlour(
 	parlour_id SERIAL PRIMARY KEY,
-	parlour_name VARCHAR(30),
+	parlour_name VARCHAR(30) NOT NULL UNIQUE,
 	contact_id INT NOT NULL UNIQUE,
 	FOREIGN KEY (contact_id) REFERENCES contact_info(contact_id) ON DELETE CASCADE
 );
@@ -155,7 +155,7 @@ CREATE TABLE recipe(
 	PRIMARY KEY (product_item_id, ingredient_item_id),
 	FOREIGN KEY (product_item_id) REFERENCES item(item_id) ON DELETE CASCADE,
 	FOREIGN KEY (ingredient_item_id) REFERENCES item(item_id) ON DELETE CASCADE,
-	CHECK (product_item_id <> ingredient_item_id)
+	CHECK (product_item_id <> ingredient_item_id) --Cannot be same item
 );
 
 -- Transaction source tracking for multiple types
@@ -210,42 +210,44 @@ CREATE TABLE inventory_transaction(
 	inv_transaction_id SERIAL PRIMARY KEY,
 	trans_type_id INT NOT NULL,
 	parlour_inventory_id INT NOT NULL,
-	quantity DECIMAL(10,2),
+	quantity DECIMAL(10,2) NOT NULL,
 	transaction_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 	transaction_source_id INT, 
-	staff_id INT,
+	staff_id INT, --Referenced to identify staff member completing an internal transaction
 	FOREIGN KEY (trans_type_id) REFERENCES inventory_transaction_type(trans_type_id) ON DELETE RESTRICT,
 	FOREIGN KEY (parlour_inventory_id) REFERENCES parlour_inventory(parlour_inventory_id) ON DELETE RESTRICT,
 	FOREIGN KEY (transaction_source_id) REFERENCES transaction_source(transaction_source_id) ON DELETE CASCADE,
 	FOREIGN KEY (staff_id) REFERENCES staff(staff_id) ON DELETE SET NULL
 );
 
--- Enforcing contact-info validation.
+--- 
 
+-- Enforcing contact-info validation.
 -- Validation Staff Contact Info Function
 CREATE OR REPLACE FUNCTION validate_staff_contact_info()
 RETURNS TRIGGER as $$
 DECLARE 
-	v_surname VARCHAR(30);
-	v_forename VARCHAR(30);
-	v_street VARCHAR(30),
-	v_town VARCHAR(30);
-	v_postcode VARCHAR(7);
-	v_email VARCHAR(30);
-	v_telephone_number VARCHAR(13)
+	v_contact_info contact_info;
 BEGIN
-	SELECT surname, forename, street, town, postcode, email_address, telephone_number
-	INTO v_surname, v_forename, v_street, v_town, v_postcode, v_email, v_telephone_number
+	SELECT *
+	INTO contact_info
 	FROM contact_info
 	WHERE contact-id = NEW.contact_id;
 
-	IF v_surname IS NULL OR v_forename IS NULL OR v_street IS NULL OR v_postcode OR v_email OR v_telephone_number IS NULL THEN
+	IF 	v_contact_info.surname IS NULL OR 
+		v_contact_info.forename IS NULL OR 
+		v_contact_info.street IS NULL OR 
+		v_contact_info.postcode IS NULL OR 
+		v_contact_info.email IS NULL OR
+		v_contact_info.telephone_number IS NULL THEN
 		RAISE EXCEPTION 'Staff contact info (contact_id: %) must have: surname, forename, street, town, postcode, email and phone number.', NEW.contact_id;
 END IF;
 
 RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+---
 
 --Supplier Contact Info Validation Function
 CREATE OR REPLACE FUNCTION validate_supplier_contact_info()
